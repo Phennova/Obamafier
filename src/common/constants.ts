@@ -23,3 +23,5 @@ export const IPC_CHANNELS = {
   READ_OBAMACRYPT: 'read-obamacrypt',
 } as const;
 
+export const OBAMACRYPT_META_KEY = 'obamacrypt_v1';
+

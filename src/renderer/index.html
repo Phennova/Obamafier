@@ -35,7 +35,7 @@
       <label>Key:</label>
       <input type="text" id="inputKey" placeholder="Enter encryption key..." spellcheck="false" autocomplete="off" />
       <button id="btnGenerateKey">Generate</button>
-      <button id="btnCopyKey" disabled>Copy</button>
+      <button id="btnCopyKey">Copy</button>
     </div>
 
     <!-- Obamafi controls -->
@@ -46,8 +46,8 @@
         <select id="selResolution">
           <option value="128">128</option>
           <option value="256">256</option>
-          <option value="512" selected>512</option>
-          <option value="768">768</option>
+          <option value="512">512</option>
+          <option value="768" selected>768</option>
           <option value="1024">1024</option>
           <option value="original">Original</option>
         </select>
@@ -64,9 +64,9 @@
 
       <div class="spacer"></div>
 
-      <button id="btnObamafi" class="primary" disabled>OBAMAFI</button>
-      <button id="btnReset" disabled>Reset</button>
-      <button id="btnClear" disabled>Clear</button>
+      <button id="btnObamafi" class="primary">OBAMAFI</button>
+      <button id="btnReset">Reset</button>
+      <button id="btnClear">Clear</button>
 
       <div class="spacer"></div>
 
@@ -83,7 +83,7 @@
 
       <div class="spacer"></div>
 
-      <button id="btnSave" disabled>Save Frame</button>
+      <button id="btnSave">Save Frame</button>
     </div>
 
     <!-- Crypto controls (shown in encrypt/decrypt modes) -->
@@ -94,8 +94,8 @@
         <select id="selResolutionCrypto">
           <option value="128">128</option>
           <option value="256">256</option>
-          <option value="512" selected>512</option>
-          <option value="768">768</option>
+          <option value="512">512</option>
+          <option value="768" selected>768</option>
           <option value="1024">1024</option>
           <option value="original">Original</option>
         </select>
@@ -103,8 +103,15 @@
 
       <div class="spacer"></div>
 
-      <button id="btnCrypt" class="primary" disabled>OBAMACRYPT</button>
-      <button id="btnClearCrypto" disabled>Clear</button>
+      <label>
+        Method:
+        <select id="selMethod">
+          <option value="metadata" selected>PNG Metadata</option>
+          <option value="lsb">LSB Steganography</option>
+        </select>
+      </label>
+      <button id="btnCrypt" class="primary">OBAMACRYPT</button>
+      <button id="btnClearCrypto">Clear</button>
 
       <div class="spacer"></div>
 
@@ -121,7 +128,7 @@
 
       <div class="spacer"></div>
 
-      <button id="btnDownload" disabled>Download PNG</button>
+      <button id="btnDownload">Download PNG</button>
     </div>
   </div>
 

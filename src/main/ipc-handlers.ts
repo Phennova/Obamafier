@@ -1,120 +1,118 @@
-import { ipcMain, dialog } from 'electron';
+import { ipcMain, dialog, BrowserWindow } from 'electron';
 import zlib from 'zlib';
 import sharp from 'sharp';
+
+function getWindow() {
+  return BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0] || undefined;
+}
 import { loadAndProcessImage, loadAndProcessPair } from './image-processor.js';
-import { IPC_CHANNELS } from '../common/constants.js';
+import { IPC_CHANNELS, OBAMACRYPT_META_KEY } from '../common/constants.js';
 
 // ─── LSB Steganography ────────────────────────────────────────
 //
-// Hides the permutation data in the least significant bits of the
-// image pixel values. Uses 2 LSBs per channel (R, G, B — skips alpha)
-// giving 6 bits per pixel.
+// Hybrid approach: 2 LSBs on R,G,B (minimal visual impact) +
+// all 8 bits of alpha channel (fully opaque images — alpha is
+// 255 everywhere, so we repurpose it entirely for data).
 //
-// Format embedded in LSBs:
-//   [32 bits] magic number (0x0BA3A F1E = "OBAMAFILE" truncated)
-//   [32 bits] payload length in bytes
-//   [N bytes] zlib-compressed permutation data
-//
-// The magic number lets us detect whether an image has hidden data
-// without false positives. No metadata, no PNG chunks — the data
-// lives in the pixel values themselves.
+// Per pixel: 2+2+2+8 = 14 bits = 1.75 bytes/pixel
+// For 512×512: 458,752 bytes (448KB)
+// For 768×768: 1,032,192 bytes (1008KB)
+// Max RGB shift: 3/255 ≈ 1.2% — imperceptible.
+// Alpha: replaced entirely, but image renders identically on
+// opaque backgrounds (Electron window bg is solid dark).
 
-const LSB_MAGIC = 0x0BA3AF1E; // "OBAMA-FILE" in hex-ish
-const BITS_PER_PIXEL = 6; // 2 LSBs × 3 channels (R, G, B)
+const LSB_MAGIC = 0x0BA3AF1E;
+const RGB_LSB = 2; // bits per RGB channel
+const BITS_PER_PIXEL = RGB_LSB * 3 + 8; // 14 bits (2+2+2 from RGB, 8 from alpha)
+
+function capacityBytes(pixelCount: number): number {
+  return Math.floor((pixelCount * BITS_PER_PIXEL) / 8);
+}
 
 /**
- * Embed data into the LSBs of an RGBA pixel buffer.
- * Modifies the buffer in-place.
+ * Embed data using 2 LSBs per RGB channel + full alpha channel.
  */
 function lsbEmbed(rgba: Uint8ClampedArray, data: Buffer): void {
-  const totalBits = data.length * 8;
-  const availableBits = (rgba.length / 4) * BITS_PER_PIXEL;
+  const pixelCount = rgba.length / 4;
+  const cap = capacityBytes(pixelCount);
 
-  if (totalBits > availableBits) {
+  if (data.length > cap) {
     throw new Error(
-      `Data too large for LSB embedding: need ${totalBits} bits, ` +
-      `have ${availableBits} bits (${(availableBits / 8 / 1024).toFixed(0)}KB capacity)`
+      `Data too large for LSB embedding: need ${(data.length / 1024).toFixed(0)}KB, ` +
+      `have ${(cap / 1024).toFixed(0)}KB capacity`
     );
   }
 
-  let bitIndex = 0;
+  let bitPos = 0;
+  const totalBits = data.length * 8;
 
-  for (let px = 0; px < rgba.length / 4 && bitIndex < totalBits; px++) {
+  function readBits(n: number): number {
+    let val = 0;
+    for (let i = n - 1; i >= 0 && bitPos < totalBits; i--, bitPos++) {
+      const byteIdx = bitPos >> 3;
+      const bitIdx = 7 - (bitPos & 7);
+      val |= ((data[byteIdx] >> bitIdx) & 1) << i;
+    }
+    return val;
+  }
+
+  for (let px = 0; px < pixelCount && bitPos < totalBits; px++) {
     const base = px * 4;
-    // Embed 2 bits into each of R, G, B (skip alpha)
-    for (let ch = 0; ch < 3 && bitIndex < totalBits; ch++) {
-      const byteIdx = Math.floor(bitIndex / 8);
-      const bitOff = 7 - (bitIndex % 8); // MSB first
-      const bit1 = (data[byteIdx] >> bitOff) & 1;
-      bitIndex++;
-
-      let bit2 = 0;
-      if (bitIndex < totalBits) {
-        const byteIdx2 = Math.floor(bitIndex / 8);
-        const bitOff2 = 7 - (bitIndex % 8);
-        bit2 = (data[byteIdx2] >> bitOff2) & 1;
-        bitIndex++;
-      }
-
-      // Clear the 2 LSBs and set our data
-      rgba[base + ch] = (rgba[base + ch] & 0xFC) | (bit1 << 1) | bit2;
+    // 2 LSBs into R, G, B
+    rgba[base + 0] = (rgba[base + 0] & 0xFC) | readBits(2);
+    rgba[base + 1] = (rgba[base + 1] & 0xFC) | readBits(2);
+    rgba[base + 2] = (rgba[base + 2] & 0xFC) | readBits(2);
+    // Full 8 bits into alpha
+    if (bitPos < totalBits) {
+      rgba[base + 3] = readBits(8);
     }
   }
 }
 
 /**
- * Extract data from the LSBs of an RGBA pixel buffer.
- * Returns null if no valid data found (magic number mismatch).
+ * Extract hidden data from 2 LSBs per RGB + full alpha.
  */
-function lsbExtract(rgba: Uint8ClampedArray): Buffer | null {
-  const maxBits = (rgba.length / 4) * BITS_PER_PIXEL;
+function lsbExtract(rgba: Uint8ClampedArray): { width: number; height: number; data: Buffer } | null {
+  // Extract 12-byte header
+  const header = lsbExtractN(rgba, 12);
+  if (!header) return null;
 
-  // First extract the header: 4 bytes magic + 4 bytes length = 64 bits
-  const headerBits = 64;
-  if (maxBits < headerBits) return null;
-
-  const headerBytes = extractBits(rgba, 0, headerBits);
-  const magic = headerBytes.readUInt32BE(0);
-
+  const magic = header.readUInt32BE(0);
   if (magic !== LSB_MAGIC) return null;
 
-  const payloadLength = headerBytes.readUInt32BE(4);
+  const width = header.readUInt16BE(4);
+  const height = header.readUInt16BE(6);
+  const payloadLength = header.readUInt32BE(8);
 
-  // Sanity check
-  if (payloadLength <= 0 || payloadLength > maxBits / 8) return null;
+  if (payloadLength <= 0 || payloadLength > rgba.length) return null;
 
-  const totalBits = (8 + payloadLength) * 8;
-  if (totalBits > maxBits) return null;
+  const all = lsbExtractN(rgba, 12 + payloadLength);
+  if (!all) return null;
 
-  // Extract the full payload
-  const allBytes = extractBits(rgba, 0, totalBits);
-  return allBytes.subarray(8, 8 + payloadLength);
+  return { width, height, data: all.subarray(12, 12 + payloadLength) };
 }
 
-/** Extract N bits from RGBA LSBs starting at bit offset 0 */
-function extractBits(rgba: Uint8ClampedArray, _startBit: number, totalBits: number): Buffer {
-  const result = Buffer.alloc(Math.ceil(totalBits / 8));
-  let bitIndex = 0;
+function lsbExtractN(rgba: Uint8ClampedArray, byteCount: number): Buffer | null {
+  const result = Buffer.alloc(byteCount);
+  const totalBits = byteCount * 8;
+  let bitPos = 0;
+  const pixelCount = rgba.length / 4;
 
-  for (let px = 0; px < rgba.length / 4 && bitIndex < totalBits; px++) {
-    const base = px * 4;
-    for (let ch = 0; ch < 3 && bitIndex < totalBits; ch++) {
-      const val = rgba[base + ch];
-      const bit1 = (val >> 1) & 1;
-      const bit2 = val & 1;
-
-      const byteIdx1 = Math.floor(bitIndex / 8);
-      const bitOff1 = 7 - (bitIndex % 8);
-      result[byteIdx1] |= bit1 << bitOff1;
-      bitIndex++;
-
-      if (bitIndex < totalBits) {
-        const byteIdx2 = Math.floor(bitIndex / 8);
-        const bitOff2 = 7 - (bitIndex % 8);
-        result[byteIdx2] |= bit2 << bitOff2;
-        bitIndex++;
-      }
+  function writeBits(val: number, n: number) {
+    for (let i = n - 1; i >= 0 && bitPos < totalBits; i--, bitPos++) {
+      const bit = (val >> i) & 1;
+      const byteIdx = bitPos >> 3;
+      const bitIdx = 7 - (bitPos & 7);
+      result[byteIdx] |= bit << bitIdx;
     }
+  }
+
+  for (let px = 0; px < pixelCount && bitPos < totalBits; px++) {
+    const base = px * 4;
+    writeBits(rgba[base + 0] & 0x03, 2);
+    writeBits(rgba[base + 1] & 0x03, 2);
+    writeBits(rgba[base + 2] & 0x03, 2);
+    writeBits(rgba[base + 3], 8);
   }
 
   return result;
@@ -124,7 +122,8 @@ function extractBits(rgba: Uint8ClampedArray, _startBit: number, totalBits: numb
 
 export function registerIpcHandlers(getTargetPath: () => string) {
   ipcMain.handle(IPC_CHANNELS.SELECT_IMAGE, async () => {
-    const result = await dialog.showOpenDialog({
+    const win = getWindow();
+    const result = await dialog.showOpenDialog(win!, {
       properties: ['openFile'],
       filters: [
         { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'bmp', 'webp', 'tiff', 'tif', 'gif', 'avif', 'heif', 'heic', 'svg', 'ico'] },
@@ -178,100 +177,171 @@ export function registerIpcHandlers(getTargetPath: () => string) {
   });
 
   ipcMain.handle(IPC_CHANNELS.EXPORT_FRAME, async (_event, pngDataUrl: string) => {
-    const result = await dialog.showSaveDialog({
+    console.log('[export-frame] called, data length:', pngDataUrl?.length ?? 0);
+    if (!pngDataUrl) { console.log('[export-frame] ERROR: no data'); return null; }
+
+    const win = getWindow();
+    console.log('[export-frame] showing save dialog, window:', !!win);
+    const result = await dialog.showSaveDialog(win!, {
       filters: [{ name: 'PNG Image', extensions: ['png'] }],
       defaultPath: 'obamafied.png',
     });
-    if (result.canceled || !result.filePath) return null;
+    if (result.canceled || !result.filePath) { console.log('[export-frame] cancelled'); return null; }
 
+    console.log('[export-frame] writing to:', result.filePath);
     const base64 = pngDataUrl.replace(/^data:image\/png;base64,/, '');
     const buffer = Buffer.from(base64, 'base64');
     const fs = await import('fs/promises');
     await fs.writeFile(result.filePath, buffer);
+    console.log('[export-frame] done, size:', buffer.length);
     return result.filePath;
   });
 
-  // ─── LSB Steganography: Save ────────────────────────────────
-  //
-  // Embeds the permutation key into the pixel LSBs, then saves as PNG.
-  // No metadata, no PNG chunks — the data is IN the pixel values.
-  // Survives metadata stripping. Invisible to the human eye.
-  //
+  // ─── Save Obamacrypt (dual method) ───────────────────────────
   ipcMain.handle(
     IPC_CHANNELS.SAVE_OBAMACRYPT,
-    async (_event, rgbaArray: number[], width: number, height: number, encodedKey: string) => {
-      const result = await dialog.showSaveDialog({
+    async (_event, rgbaArray: number[], width: number, height: number, encodedKey: string, method: string) => {
+      console.log('[save-obamacrypt] method:', method, 'key length:', encodedKey?.length);
+      if (!rgbaArray || !encodedKey) return null;
+
+      const win = getWindow();
+      const result = await dialog.showSaveDialog(win!, {
         filters: [{ name: 'PNG Image', extensions: ['png'] }],
         defaultPath: 'obamacrypted.png',
       });
       if (result.canceled || !result.filePath) return null;
 
       const rgba = new Uint8ClampedArray(rgbaArray);
+      const fs = await import('fs/promises');
 
-      // Compress the key string
-      const keyBuf = Buffer.from(encodedKey, 'utf-8');
-      const compressed = zlib.deflateSync(keyBuf, { level: 9 });
+      let actualMethod = method;
 
-      // Build the payload: magic(4) + length(4) + compressed data
-      const header = Buffer.alloc(8);
-      header.writeUInt32BE(LSB_MAGIC, 0);
-      header.writeUInt32BE(compressed.length, 4);
-      const payload = Buffer.concat([header, compressed]);
+      if (method === 'lsb') {
+        // ─── LSB Method: embed in pixel values ───
+        const capacity = capacityBytes(width * height);
+        const pipeIdx = encodedKey.indexOf('|');
+        const base64Part = encodedKey.substring(pipeIdx + 1);
+        const varintBytes = Buffer.from(base64Part, 'base64');
+        const compressed = zlib.deflateSync(varintBytes, { level: 9, memLevel: 9 });
 
-      console.log(
-        `[obamacrypt] LSB embed: ${compressed.length} bytes compressed ` +
-        `(${keyBuf.length} raw) into ${width}x${height} image ` +
-        `(capacity: ${Math.floor((width * height * BITS_PER_PIXEL) / 8)} bytes)`
-      );
+        const header = Buffer.alloc(12);
+        header.writeUInt32BE(LSB_MAGIC, 0);
+        header.writeUInt16BE(width, 4);
+        header.writeUInt16BE(height, 6);
+        header.writeUInt32BE(compressed.length, 8);
+        const payload = Buffer.concat([header, compressed]);
 
-      // Embed into pixel LSBs
-      lsbEmbed(rgba, payload);
+        console.log(`[save-obamacrypt] LSB: ${(payload.length/1024).toFixed(0)}KB payload, ${(capacity/1024).toFixed(0)}KB capacity`);
 
-      // Save as PNG (lossless — preserves LSBs exactly)
+        if (payload.length > capacity) {
+          console.log(`[save-obamacrypt] LSB capacity exceeded, falling back to metadata method`);
+          actualMethod = 'metadata';
+        } else {
+          lsbEmbed(rgba, payload);
+        }
+      }
+
+      // Save the image (with LSB-modified pixels, or unmodified for metadata)
       await sharp(Buffer.from(rgba.buffer), { raw: { width, height, channels: 4 } })
         .png({ compressionLevel: 9, palette: false })
         .toFile(result.filePath);
 
-      return result.filePath;
+      if (actualMethod !== 'lsb') {
+        // ─── Metadata Method: inject PNG zTXt chunk ───
+        const pngBuf = await fs.readFile(result.filePath);
+        const withKey = injectPngZtxt(pngBuf, OBAMACRYPT_META_KEY, encodedKey);
+        await fs.writeFile(result.filePath, withKey);
+        console.log(`[save-obamacrypt] metadata: injected ${(encodedKey.length/1024).toFixed(0)}KB key as zTXt chunk`);
+      }
+
+      console.log('[save-obamacrypt] saved:', result.filePath, 'method:', actualMethod);
+      return { filePath: result.filePath, actualMethod };
     }
   );
 
-  // ─── LSB Steganography: Read ────────────────────────────────
-  //
-  // Reads the raw RGBA pixels and extracts data from LSBs.
-  // Returns null if no hidden data found (magic number mismatch).
-  //
+  // ─── Read Obamacrypt (tries both methods) ──────────────────
   ipcMain.handle(
     IPC_CHANNELS.READ_OBAMACRYPT,
     async (_event, imagePath: string) => {
       const fs = await import('fs/promises');
       const buf = await fs.readFile(imagePath);
 
-      // Decode to raw RGBA
-      const { data, info } = await sharp(buf)
-        .ensureAlpha()
-        .raw()
-        .toBuffer({ resolveWithObject: true });
-
-      const rgba = new Uint8ClampedArray(data.buffer, data.byteOffset, data.byteLength);
-
-      // Extract hidden data from LSBs
-      const payload = lsbExtract(rgba);
-      if (!payload) {
-        console.log('[obamacrypt] No LSB data found in image');
-        return null;
+      // Try metadata method first (fast — just scan PNG chunks)
+      const metaKey = extractPngZtxt(buf, OBAMACRYPT_META_KEY);
+      if (metaKey) {
+        console.log('[read-obamacrypt] found key in PNG metadata');
+        return metaKey;
       }
 
-      // Decompress
+      // Try LSB method (decode to raw RGBA and extract)
       try {
-        const decompressed = zlib.inflateSync(payload);
-        const key = decompressed.toString('utf-8');
-        console.log(`[obamacrypt] LSB extract: ${payload.length} bytes compressed → ${key.length} chars`);
-        return key;
-      } catch {
-        console.log('[obamacrypt] LSB data found but decompression failed');
-        return null;
-      }
+        const { data } = await sharp(buf)
+          .ensureAlpha()
+          .raw()
+          .toBuffer({ resolveWithObject: true });
+
+        const rgba = new Uint8ClampedArray(data.buffer, data.byteOffset, data.byteLength);
+        const extracted = lsbExtract(rgba);
+        if (extracted) {
+          const varintBytes = zlib.inflateSync(extracted.data);
+          const base64Part = varintBytes.toString('base64');
+          const key = `${extracted.width},${extracted.height}|${base64Part}`;
+          console.log('[read-obamacrypt] found key in LSB data');
+          return key;
+        }
+      } catch {}
+
+      console.log('[read-obamacrypt] no key found in image');
+      return null;
     }
   );
+}
+
+// ─── PNG zTXt Chunk Helpers ──────────────────────────────────
+
+function injectPngZtxt(png: Buffer, keyword: string, text: string): Buffer {
+  const keyBuf = Buffer.from(keyword, 'latin1');
+  const textBuf = zlib.deflateSync(Buffer.from(text, 'latin1'));
+  const chunkData = Buffer.concat([keyBuf, Buffer.from([0x00, 0x00]), textBuf]);
+  const chunkType = Buffer.from('zTXt', 'ascii');
+  const lengthBuf = Buffer.alloc(4);
+  lengthBuf.writeUInt32BE(chunkData.length);
+  const crc = crc32(Buffer.concat([chunkType, chunkData]));
+  const crcBuf = Buffer.alloc(4);
+  crcBuf.writeUInt32BE(crc);
+  const chunk = Buffer.concat([lengthBuf, chunkType, chunkData, crcBuf]);
+  const iendOffset = png.length - 12;
+  return Buffer.concat([png.subarray(0, iendOffset), chunk, png.subarray(iendOffset)]);
+}
+
+function extractPngZtxt(png: Buffer, keyword: string): string | null {
+  let offset = 8;
+  while (offset < png.length - 12) {
+    const length = png.readUInt32BE(offset);
+    const type = png.subarray(offset + 4, offset + 8).toString('ascii');
+    if (type === 'zTXt') {
+      const data = png.subarray(offset + 8, offset + 8 + length);
+      const nullIdx = data.indexOf(0x00);
+      if (nullIdx > 0) {
+        const key = data.subarray(0, nullIdx).toString('latin1');
+        if (key === keyword) {
+          const compressed = data.subarray(nullIdx + 2);
+          return zlib.inflateSync(compressed).toString('latin1');
+        }
+      }
+    }
+    offset += 12 + length;
+  }
+  return null;
+}
+
+function crc32(buf: Buffer): number {
+  let crc = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) {
+    crc ^= buf[i];
+    for (let j = 0; j < 8; j++) {
+      crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
 }

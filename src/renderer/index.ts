@@ -21,7 +21,7 @@ declare global {
       }>;
       getTargetPath: () => Promise<string>;
       exportFrame: (pngDataUrl: string) => Promise<string | null>;
-      saveObamacrypt: (rgba: number[], width: number, height: number, encodedKey: string) => Promise<string | null>;
+      saveObamacrypt: (rgba: number[], width: number, height: number, encodedKey: string, method: string) => Promise<{ filePath: string; actualMethod: string } | null>;
       readObamacrypt: (imagePath: string) => Promise<string | null>;
       getPathForFile: (file: File) => string;
     };
@@ -67,6 +67,7 @@ const btnLoadCrypto = document.getElementById('btnLoadCrypto') as HTMLButtonElem
 const btnCrypt = document.getElementById('btnCrypt') as HTMLButtonElement;
 const btnClearCrypto = document.getElementById('btnClearCrypto') as HTMLButtonElement;
 const btnDownload = document.getElementById('btnDownload') as HTMLButtonElement;
+const selMethod = document.getElementById('selMethod') as HTMLSelectElement;
 const selResolutionCrypto = document.getElementById('selResolutionCrypto') as HTMLSelectElement;
 const sliderDurationCrypto = document.getElementById('sliderDurationCrypto') as HTMLInputElement;
 const valDurationCrypto = document.getElementById('valDurationCrypto') as HTMLSpanElement;
@@ -86,6 +87,13 @@ let cryptoEncodedKey: string | null = null;
 let imageWidth = 0;
 let imageHeight = 0;
 let isProcessing = false;
+let cryptoSourcePath: string | null = null;
+let cryptoLoadedResolution: number = 0;
+
+/** Toggle inactive appearance (CSS-only, no disabled attribute) */
+function setActive(btn: HTMLElement, active: boolean) {
+  btn.classList.toggle('inactive', !active);
+}
 
 // ─── Init ───────────────────────────────────────────────────
 
@@ -154,6 +162,16 @@ function init() {
       }
     }
   });
+
+  // Start with all action buttons inactive
+  setActive(btnObamafi, false);
+  setActive(btnReset, false);
+  setActive(btnClear, false);
+  setActive(btnSave, false);
+  setActive(btnCrypt, false);
+  setActive(btnClearCrypto, false);
+  setActive(btnDownload, false);
+  setActive(btnCopyKey, false);
 }
 
 // ─── Mode Switching ─────────────────────────────────────────
@@ -162,12 +180,10 @@ function switchMode(mode: AppMode) {
   currentMode = mode;
   clearAll();
 
-  // Update tabs
   modeTabs.forEach(tab => {
     tab.classList.toggle('active', tab.dataset.mode === mode);
   });
 
-  // Update title
   if (mode === 'obamafi') {
     appTitle.textContent = 'OBAMAFIER';
   } else if (mode === 'encrypt') {
@@ -176,7 +192,6 @@ function switchMode(mode: AppMode) {
     appTitle.textContent = 'DEOBAMACRYPT';
   }
 
-  // Update drop overlay text
   if (mode === 'obamafi') {
     dropOverlay.querySelector('p')!.textContent = 'Drop an image here or click Load Image';
   } else if (mode === 'encrypt') {
@@ -185,32 +200,25 @@ function switchMode(mode: AppMode) {
     dropOverlay.querySelector('p')!.textContent = 'Drop an obamacrypted image to deobamacrypt';
   }
 
-  // Toggle control panels
   obamafiControls.classList.toggle('hidden', mode !== 'obamafi');
   cryptoControls.classList.toggle('hidden', mode === 'obamafi');
   keyBar.classList.toggle('hidden', mode === 'obamafi');
 
-  // Configure key bar for mode
   if (mode === 'encrypt') {
     inputKey.placeholder = 'Key will appear here after obamacryption...';
     inputKey.readOnly = true;
     btnGenerateKey.classList.add('hidden');
+    btnCrypt.textContent = 'OBAMACRYPT';
+    btnCrypt.className = 'primary encrypt';
   } else if (mode === 'decrypt') {
     inputKey.placeholder = 'Paste your obamacrypt key here...';
     inputKey.readOnly = false;
     btnGenerateKey.classList.add('hidden');
-  }
-  inputKey.value = '';
-  btnCopyKey.disabled = true;
-
-  // Update crypto button text
-  if (mode === 'encrypt') {
-    btnCrypt.textContent = 'OBAMACRYPT';
-    btnCrypt.className = 'primary encrypt';
-  } else if (mode === 'decrypt') {
     btnCrypt.textContent = 'DEOBAMACRYPT';
     btnCrypt.className = 'primary decrypt';
   }
+  inputKey.value = '';
+  setActive(btnCopyKey, false);
 
   setStatus(mode === 'obamafi' ? 'Drop an image to begin' : mode === 'encrypt' ? 'Load an image to obamacrypt' : 'Load an obamacrypted image to deobamacrypt');
 }
@@ -222,26 +230,27 @@ function generateKey() {
   const arr = new Uint8Array(32);
   crypto.getRandomValues(arr);
   inputKey.value = Array.from(arr, b => chars[b % 16]).join('');
-  btnCopyKey.disabled = false;
+  setActive(btnCopyKey, true);
   updateCryptButton();
 }
 
 function copyKey() {
+  if (!inputKey.value) return;
   navigator.clipboard.writeText(inputKey.value);
   btnCopyKey.textContent = 'Copied!';
   setTimeout(() => { btnCopyKey.textContent = 'Copy'; }, 1500);
 }
 
 function onKeyInput() {
-  btnCopyKey.disabled = inputKey.value.length === 0;
+  setActive(btnCopyKey, inputKey.value.length > 0);
   updateCryptButton();
 }
 
 function updateCryptButton() {
   if (currentMode === 'encrypt') {
-    btnCrypt.disabled = !sourceRGBA || isProcessing;
+    setActive(btnCrypt, !!sourceRGBA && !isProcessing);
   } else {
-    btnCrypt.disabled = !sourceRGBA || inputKey.value.length === 0 || isProcessing;
+    setActive(btnCrypt, !!sourceRGBA && inputKey.value.length > 0 && !isProcessing);
   }
 }
 
@@ -263,7 +272,7 @@ async function loadAndProcess(sourcePath: string) {
   try {
     dropOverlay.classList.add('hidden');
     progressContainer.classList.remove('hidden');
-    setProgress(0, 'Loading images...');
+    setProgress(0, '');
     setStatus('Preprocessing...');
 
     const result = await window.electronAPI.processImages(sourcePath, resolution);
@@ -272,7 +281,7 @@ async function loadAndProcess(sourcePath: string) {
     imageWidth = result.source.width;
     imageHeight = result.source.height;
 
-    setProgress(0.1, 'Computing optimal pixel assignment...');
+    setProgress(0.1, '');
     setStatus('Computing assignment...');
 
     const assignment = await runAssignmentWorker(
@@ -284,21 +293,20 @@ async function loadAndProcess(sourcePath: string) {
     const curvature = parseFloat(sliderCurve.value);
     particles!.uploadParticles(
       sourceRGBA, targetRGBA, assignment,
-      imageWidth, imageHeight,
-      0.3, curvature
+      imageWidth, imageHeight, 0.3, curvature
     );
 
     animation = new AnimationController(
       particles!,
       parseFloat(sliderDuration.value),
       (state) => {
-        btnObamafi.disabled = state === 'playing';
-        btnReset.disabled = state === 'idle';
-        btnSave.disabled = state === 'idle';
+        setActive(btnObamafi, state !== 'playing');
+        setActive(btnReset, state !== 'idle');
+        setActive(btnSave, state !== 'idle');
         if (state === 'finished') {
           setStatus('OBAMAFIED!');
           btnObamafi.textContent = 'REPLAY';
-          btnObamafi.disabled = false;
+          setActive(btnObamafi, true);
         }
       },
     );
@@ -306,11 +314,11 @@ async function loadAndProcess(sourcePath: string) {
 
     progressContainer.classList.add('hidden');
     setStatus('Ready! Click OBAMAFI to transform');
-    btnObamafi.disabled = false;
     btnObamafi.textContent = 'OBAMAFI';
-    btnReset.disabled = true;
-    btnClear.disabled = false;
-    btnSave.disabled = false;
+    setActive(btnObamafi, true);
+    setActive(btnReset, false);
+    setActive(btnClear, true);
+    setActive(btnSave, true);
   } catch (err: any) {
     setStatus(`Error: ${err.message}`);
     console.error(err);
@@ -330,53 +338,55 @@ async function loadCryptoImage(sourcePath: string) {
   if (isProcessing) return;
   isProcessing = true;
 
-  const resolution = selResolutionCrypto.value === 'original' ? 0 : parseInt(selResolutionCrypto.value);
+  // Decrypt must use native resolution — the key is tied to the original dimensions
+  const resolution = currentMode === 'decrypt' ? 0
+    : selResolutionCrypto.value === 'original' ? 0
+    : parseInt(selResolutionCrypto.value);
+
+  cryptoSourcePath = sourcePath;
+  cryptoLoadedResolution = resolution;
 
   try {
     dropOverlay.classList.add('hidden');
     setStatus('Loading image...');
 
     if (currentMode === 'encrypt') {
-      // Encrypt needs both source + Obama
       const result = await window.electronAPI.processImages(sourcePath, resolution);
       sourceRGBA = result.source.rgba;
       targetRGBA = result.target.rgba;
       imageWidth = result.source.width;
       imageHeight = result.source.height;
     } else {
-      // Decrypt: load the encrypted image and try to read embedded key
       const result = await window.electronAPI.loadImage(sourcePath, resolution);
       sourceRGBA = result.rgba;
       targetRGBA = null;
       imageWidth = result.width;
       imageHeight = result.height;
 
-      // Try to auto-read the embedded key from PNG metadata
       const embeddedKey = await window.electronAPI.readObamacrypt(sourcePath);
       if (embeddedKey) {
         inputKey.value = embeddedKey;
-        btnCopyKey.disabled = false;
+        setActive(btnCopyKey, true);
       }
     }
 
-    // Display the source image on canvas
     const identity = new Array(imageWidth * imageHeight);
     for (let i = 0; i < identity.length; i++) identity[i] = i;
     particles!.uploadParticles(sourceRGBA, sourceRGBA, identity, imageWidth, imageHeight, 0, 0);
     particles!.render(1);
 
-    btnClearCrypto.disabled = false;
-    btnDownload.disabled = true;
+    setActive(btnClearCrypto, true);
+    setActive(btnDownload, false);
     cryptoResultRGBA = null;
     cryptoEncodedKey = null;
 
     if (currentMode === 'encrypt') {
       setStatus(`Image loaded (${imageWidth}x${imageHeight}). Click OBAMACRYPT to encrypt.`);
-      btnCrypt.disabled = false;
+      setActive(btnCrypt, true);
     } else {
       if (inputKey.value) {
         setStatus(`Image loaded (${imageWidth}x${imageHeight}). Key found in image! Click DEOBAMACRYPT.`);
-        btnCrypt.disabled = false;
+        setActive(btnCrypt, true);
       } else {
         setStatus(`Image loaded (${imageWidth}x${imageHeight}). No embedded key found — paste one manually.`);
         updateCryptButton();
@@ -398,26 +408,38 @@ async function runCrypto() {
   const mode = currentMode as 'encrypt' | 'decrypt';
 
   try {
+    // If encrypting and resolution changed since load, re-process at new resolution
+    if (mode === 'encrypt' && cryptoSourcePath) {
+      const currentRes = selResolutionCrypto.value === 'original' ? 0 : parseInt(selResolutionCrypto.value);
+      if (currentRes !== cryptoLoadedResolution) {
+        setStatus('Resolution changed — reprocessing...');
+        const result = await window.electronAPI.processImages(cryptoSourcePath, currentRes);
+        sourceRGBA = result.source.rgba;
+        targetRGBA = result.target.rgba;
+        imageWidth = result.source.width;
+        imageHeight = result.source.height;
+        cryptoLoadedResolution = currentRes;
+      }
+    }
+
     progressContainer.classList.remove('hidden');
-    setProgress(0, mode === 'encrypt' ? 'Obamacrypting...' : 'Deobamacrypting...');
+    setProgress(0, '');
     setStatus(mode === 'encrypt' ? 'Obamacrypting...' : 'Deobamacrypting...');
 
     const result = await runCryptoWorker(mode);
 
     cryptoResultRGBA = new Uint8ClampedArray(result.resultRGBA);
 
-    // Upload to GPU with animation
     const curvature = parseFloat(sliderCurveCrypto.value);
     particles!.uploadParticles(
       sourceRGBA!, sourceRGBA!, result.permutation,
       imageWidth, imageHeight, 0.3, curvature
     );
 
-    // If encrypt, store the key and show it in the key field
     if (mode === 'encrypt' && result.encodedKey) {
       cryptoEncodedKey = result.encodedKey;
       inputKey.value = result.encodedKey;
-      btnCopyKey.disabled = false;
+      setActive(btnCopyKey, true);
       const sizeKB = (result.encodedKey.length / 1024).toFixed(0);
       setStatus(`Obamacrypted! Key (${sizeKB}KB) hidden in image. Download the image.`);
     }
@@ -426,13 +448,13 @@ async function runCrypto() {
       particles!,
       parseFloat(sliderDurationCrypto.value),
       (state) => {
-        btnCrypt.disabled = state === 'playing';
+        setActive(btnCrypt, state !== 'playing');
         if (state === 'finished') {
           if (mode === 'decrypt') {
             setStatus('Deobamacrypted! Download your recovered image.');
           }
-          btnCrypt.disabled = false;
-          btnDownload.disabled = false;
+          setActive(btnCrypt, true);
+          setActive(btnDownload, true);
         }
       },
     );
@@ -490,35 +512,49 @@ function runCryptoWorker(
 async function downloadResult() {
   if (!cryptoResultRGBA || !imageWidth || !imageHeight) return;
 
-  if (currentMode === 'encrypt' && cryptoEncodedKey) {
-    // Save via main process — embeds the permutation key in PNG metadata
-    const savedPath = await window.electronAPI.saveObamacrypt(
-      Array.from(cryptoResultRGBA),
-      imageWidth,
-      imageHeight,
-      cryptoEncodedKey
-    );
-    if (savedPath) {
-      setStatus(`Saved to ${savedPath} — key is hidden inside the PNG!`);
+  setStatus('Preparing image for save...');
+  await new Promise(r => setTimeout(r, 50));
+
+  try {
+    if (currentMode === 'encrypt' && cryptoEncodedKey) {
+      const method = selMethod.value;
+      setStatus(method === 'lsb' ? 'Embedding key in pixel LSBs...' : 'Embedding key in PNG metadata...');
+      await new Promise(r => setTimeout(r, 50));
+
+      const saveResult = await window.electronAPI.saveObamacrypt(
+        Array.from(cryptoResultRGBA),
+        imageWidth,
+        imageHeight,
+        cryptoEncodedKey,
+        method
+      );
+      if (saveResult) {
+        const methodLabel = saveResult.actualMethod === 'lsb' ? 'hidden in pixel LSBs' : 'hidden in PNG metadata';
+        const fallbackNote = saveResult.actualMethod !== method ? ' (auto-fallback for 100% quality)' : '';
+        setStatus(`Saved to ${saveResult.filePath} — key ${methodLabel}${fallbackNote}!`);
+      } else {
+        setStatus('Save cancelled.');
+      }
+    } else {
+      const offscreen = document.createElement('canvas');
+      offscreen.width = imageWidth;
+      offscreen.height = imageHeight;
+      const ctx = offscreen.getContext('2d')!;
+      ctx.putImageData(
+        new ImageData(new Uint8ClampedArray(cryptoResultRGBA), imageWidth, imageHeight),
+        0, 0
+      );
+      const dataUrl = offscreen.toDataURL('image/png');
+      const savedPath = await window.electronAPI.exportFrame(dataUrl);
+      if (savedPath) {
+        setStatus(`Saved to ${savedPath}`);
+      } else {
+        setStatus('Save cancelled.');
+      }
     }
-  } else {
-    // Decrypted result — save as normal PNG
-    const offscreen = document.createElement('canvas');
-    offscreen.width = imageWidth;
-    offscreen.height = imageHeight;
-    const ctx = offscreen.getContext('2d')!;
-    ctx.putImageData(
-      new ImageData(new Uint8ClampedArray(cryptoResultRGBA), imageWidth, imageHeight),
-      0, 0
-    );
-    const dataUrl = offscreen.toDataURL('image/png');
-    const a = document.createElement('a');
-    a.href = dataUrl;
-    a.download = 'deobamacrypted.png';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setStatus('Downloaded!');
+  } catch (err: any) {
+    setStatus(`Save failed: ${err.message}`);
+    console.error('Download error:', err);
   }
 }
 
@@ -570,11 +606,11 @@ function runAssignmentWorker(
 // ─── Shared Actions ─────────────────────────────────────────
 
 function startAnimation() {
-  if (!animation) return;
+  if (!animation || isProcessing) return;
   if (animation.animationState === 'finished') {
     animation.reset();
   }
-  btnReset.disabled = false;
+  setActive(btnReset, true);
   setStatus('Transforming...');
   animation.play();
 }
@@ -584,8 +620,8 @@ function resetAnimation() {
   animation.reset();
   setStatus('Ready! Click OBAMAFI to transform');
   btnObamafi.textContent = 'OBAMAFI';
-  btnObamafi.disabled = false;
-  btnReset.disabled = true;
+  setActive(btnObamafi, true);
+  setActive(btnReset, false);
 }
 
 function clearAll() {
@@ -598,6 +634,8 @@ function clearAll() {
   currentAssignment = null;
   cryptoResultRGBA = null;
   cryptoEncodedKey = null;
+  cryptoSourcePath = null;
+  cryptoLoadedResolution = 0;
   imageWidth = 0;
   imageHeight = 0;
 
@@ -606,27 +644,37 @@ function clearAll() {
   dropOverlay.classList.remove('hidden');
   progressContainer.classList.add('hidden');
 
-  // Reset obamafi buttons
-  btnObamafi.disabled = true;
+  setActive(btnObamafi, false);
   btnObamafi.textContent = 'OBAMAFI';
-  btnReset.disabled = true;
-  btnClear.disabled = true;
-  btnSave.disabled = true;
+  setActive(btnReset, false);
+  setActive(btnClear, false);
+  setActive(btnSave, false);
 
-  // Reset crypto buttons
-  btnCrypt.disabled = true;
-  btnClearCrypto.disabled = true;
-  btnDownload.disabled = true;
+  setActive(btnCrypt, false);
+  setActive(btnClearCrypto, false);
+  setActive(btnDownload, false);
 
   setStatus(currentMode === 'obamafi' ? 'Drop an image to begin' : currentMode === 'encrypt' ? 'Load an image to obamacrypt' : 'Load an obamacrypted image to deobamacrypt');
 }
 
 async function saveFrame() {
   if (!particles) return;
-  const dataUrl = particles.captureFrame();
-  const savedPath = await window.electronAPI.exportFrame(dataUrl);
-  if (savedPath) {
-    setStatus(`Saved to ${savedPath}`);
+  setStatus('Saving frame...');
+
+  try {
+    if (animation) {
+      particles.render(animation.progress);
+    }
+    const dataUrl = particles.captureFrame();
+    const savedPath = await window.electronAPI.exportFrame(dataUrl);
+    if (savedPath) {
+      setStatus(`Saved to ${savedPath}`);
+    } else {
+      setStatus('Save cancelled.');
+    }
+  } catch (err: any) {
+    setStatus(`Save failed: ${err.message}`);
+    console.error('Save error:', err);
   }
 }
 

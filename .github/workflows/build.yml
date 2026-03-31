@@ -9,12 +9,13 @@ on:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: macos-latest
             platform: mac
             arch: arm64
-          - os: macos-13
+          - os: macos-latest
             platform: mac
             arch: x64
           - os: windows-latest
@@ -38,9 +39,7 @@ jobs:
         run: npx vite build
 
       - name: Package Electron app
-        run: npx electron-builder --${{ matrix.platform }} --${{ matrix.arch }} --config electron-builder.yml
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --${{ matrix.platform }} --${{ matrix.arch }} --config electron-builder.yml --publish never
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -50,16 +49,27 @@ jobs:
             release/*.dmg
             release/*.pkg
             release/*.exe
-            release/*.blockmap
           if-no-files-found: ignore
 
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f | head -20
+
       - name: Upload to release
-        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            release/*.dmg
-            release/*.pkg
-            release/*.exe
+          files: artifacts/**/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

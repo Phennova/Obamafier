@@ -14,7 +14,7 @@ export default defineConfig({
           build: {
             outDir: resolve(__dirname, 'dist/main'),
             rollupOptions: {
-              external: ['sharp', 'electron'],
+              external: ['sharp', 'electron', 'electron-updater'],
             },
           },
         },

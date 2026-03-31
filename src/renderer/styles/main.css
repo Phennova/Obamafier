@@ -375,3 +375,102 @@ body {
   min-width: 30px;
   text-align: right;
 }
+
+/* Update Modal */
+.update-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.update-modal.hidden {
+  display: none;
+}
+
+.update-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(4px);
+}
+
+.update-modal-content {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 32px;
+  max-width: 400px;
+  width: 90%;
+  text-align: center;
+}
+
+.update-modal-content h2 {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  margin-bottom: 12px;
+  color: var(--accent);
+}
+
+.update-modal-content p {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+.update-modal-content strong {
+  color: var(--text);
+}
+
+.update-progress {
+  height: 6px;
+  background: var(--bg);
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 16px 0;
+  border: 1px solid var(--border);
+}
+
+.update-progress.hidden {
+  display: none;
+}
+
+.update-progress-bar {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+  width: 0%;
+}
+
+.update-modal-content button {
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: white;
+  padding: 10px 24px;
+  border-radius: 6px;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  margin-top: 12px;
+}
+
+.update-modal-content button:hover {
+  background: var(--accent-hover);
+}
+
+.update-modal-content button.hidden {
+  display: none;
+}
+
+.update-modal-content button.inactive {
+  opacity: 0.5;
+  cursor: default;
+}

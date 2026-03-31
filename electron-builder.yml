@@ -17,6 +17,10 @@ files:
   - node_modules/color-string/**/*
   - node_modules/simple-swizzle/**/*
   - node_modules/is-arrayish/**/*
+  - node_modules/electron-updater/**/*
+  - node_modules/builder-util-runtime/**/*
+  - node_modules/lazy-val/**/*
+  - node_modules/tiny-typed-emitter/**/*
 asarUnpack:
   - node_modules/sharp/**/*
   - node_modules/@img/**/*
@@ -43,4 +47,8 @@ extraResources:
     to: assets/
     filter:
       - "**/*"
+publish:
+  provider: github
+  owner: Phennova
+  repo: Obamafier
 asar: true

@@ -24,6 +24,10 @@ declare global {
       saveObamacrypt: (rgba: number[], width: number, height: number, encodedKey: string, method: string) => Promise<{ filePath: string; actualMethod: string } | null>;
       readObamacrypt: (imagePath: string) => Promise<string | null>;
       getPathForFile: (file: File) => string;
+      onUpdateAvailable: (cb: (version: string) => void) => void;
+      onUpdateProgress: (cb: (percent: number) => void) => void;
+      onUpdateDownloaded: (cb: (version: string) => void) => void;
+      installUpdate: () => void;
     };
   }
 }
@@ -691,5 +695,43 @@ function setProgress(value: number, _msg: string) {
   }
 }
 
+// ─── Auto-Update Modal ─────────────────────────────────────
+
+function setupUpdateListeners() {
+  const modal = document.getElementById('updateModal') as HTMLDivElement;
+  const updateVersion = document.getElementById('updateVersion') as HTMLSpanElement;
+  const updateStatus = document.getElementById('updateStatus') as HTMLParagraphElement;
+  const updateProgress = document.getElementById('updateProgress') as HTMLDivElement;
+  const updateProgressBar = document.getElementById('updateProgressBar') as HTMLDivElement;
+  const btnInstallUpdate = document.getElementById('btnInstallUpdate') as HTMLButtonElement;
+
+  window.electronAPI.onUpdateAvailable((version) => {
+    updateVersion.textContent = version;
+    updateStatus.textContent = 'Downloading update...';
+    updateProgress.classList.remove('hidden');
+    btnInstallUpdate.classList.add('hidden');
+    modal.classList.remove('hidden');
+  });
+
+  window.electronAPI.onUpdateProgress((percent) => {
+    updateProgressBar.style.width = `${percent}%`;
+    updateStatus.textContent = `Downloading update... ${percent}%`;
+  });
+
+  window.electronAPI.onUpdateDownloaded((version) => {
+    updateVersion.textContent = version;
+    updateStatus.textContent = 'Update ready to install!';
+    updateProgress.classList.add('hidden');
+    btnInstallUpdate.classList.remove('hidden');
+  });
+
+  btnInstallUpdate.addEventListener('click', () => {
+    btnInstallUpdate.textContent = 'Installing...';
+    btnInstallUpdate.classList.add('inactive');
+    window.electronAPI.installUpdate();
+  });
+}
+
 // ─── Start ──────────────────────────────────────────────────
 init();
+setupUpdateListeners();

@@ -39,7 +39,9 @@ jobs:
         run: npx vite build
 
       - name: Package Electron app
-        run: npx electron-builder --${{ matrix.platform }} --${{ matrix.arch }} --config electron-builder.yml --publish never
+        run: npx electron-builder --${{ matrix.platform }} --${{ matrix.arch }} --config electron-builder.yml --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -49,27 +51,6 @@ jobs:
             release/*.dmg
             release/*.pkg
             release/*.exe
+            release/*.yml
+            release/*.yaml
           if-no-files-found: ignore
-
-  release:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: List artifacts
-        run: find artifacts -type f | head -20
-
-      - name: Upload to release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: artifacts/**/*
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,6 +1,6 @@
 {
   "name": "obamafier",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "Transform any image into Obama using optimal pixel transport",
   "main": "dist/main/index.js",
   "scripts": {
@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "electron-updater": "^6.3.0",
     "sharp": "^0.33.5"
   },
   "devDependencies": {

@@ -21,6 +21,10 @@ export const IPC_CHANNELS = {
   GET_TARGET_PATH: 'get-target-path',
   SAVE_OBAMACRYPT: 'save-obamacrypt',
   READ_OBAMACRYPT: 'read-obamacrypt',
+  UPDATE_AVAILABLE: 'update-available',
+  UPDATE_DOWNLOAD_PROGRESS: 'update-download-progress',
+  UPDATE_DOWNLOADED: 'update-downloaded',
+  UPDATE_INSTALL: 'update-install',
 } as const;
 
 export const OBAMACRYPT_META_KEY = 'obamacrypt_v1';

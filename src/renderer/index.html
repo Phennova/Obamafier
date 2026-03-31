@@ -132,6 +132,20 @@
     </div>
   </div>
 
+  <!-- Update Modal (unskippable) -->
+  <div class="update-modal hidden" id="updateModal">
+    <div class="update-modal-backdrop"></div>
+    <div class="update-modal-content">
+      <h2>Update Available</h2>
+      <p>A new version <strong id="updateVersion"></strong> of Obamafier is available.</p>
+      <p id="updateStatus">Downloading update...</p>
+      <div class="update-progress" id="updateProgress">
+        <div class="update-progress-bar" id="updateProgressBar"></div>
+      </div>
+      <button id="btnInstallUpdate" class="hidden">Install & Restart</button>
+    </div>
+  </div>
+
   <script type="module" src="./index.ts"></script>
 </body>
 </html>

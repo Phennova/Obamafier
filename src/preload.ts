@@ -23,4 +23,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke(IPC_CHANNELS.READ_OBAMACRYPT, imagePath),
 
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
+
+  // Auto-updater
+  onUpdateAvailable: (cb: (version: string) => void) =>
+    ipcRenderer.on(IPC_CHANNELS.UPDATE_AVAILABLE, (_e, version) => cb(version)),
+  onUpdateProgress: (cb: (percent: number) => void) =>
+    ipcRenderer.on(IPC_CHANNELS.UPDATE_DOWNLOAD_PROGRESS, (_e, percent) => cb(percent)),
+  onUpdateDownloaded: (cb: (version: string) => void) =>
+    ipcRenderer.on(IPC_CHANNELS.UPDATE_DOWNLOADED, (_e, version) => cb(version)),
+  installUpdate: () => ipcRenderer.send(IPC_CHANNELS.UPDATE_INSTALL),
 });

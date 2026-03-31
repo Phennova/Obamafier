@@ -1,0 +1,23 @@
+appId: com.obamafier.app
+productName: Obamafier
+directories:
+  output: release
+  buildResources: assets
+files:
+  - dist/**/*
+  - assets/**/*
+  - "!node_modules/**/*"
+  - node_modules/sharp/**/*
+mac:
+  target: dmg
+  category: public.app-category.graphics-design
+win:
+  target: nsis
+linux:
+  target: AppImage
+extraResources:
+  - from: assets/
+    to: assets/
+    filter:
+      - "**/*"
+asar: true

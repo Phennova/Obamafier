@@ -1,0 +1,31 @@
+{
+  "name": "obamafier",
+  "version": "1.0.0",
+  "description": "Transform any image into Obama using optimal pixel transport",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "start": "vite build && electron .",
+    "pack": "vite build && electron-builder",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "sharp": "^0.33.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "concurrently": "^9.0.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "typescript": "^5.6.0",
+    "vite": "^6.0.0",
+    "vite-plugin-electron": "^0.28.0",
+    "vite-plugin-electron-renderer": "^0.14.0",
+    "vitest": "^2.0.0",
+    "wait-on": "^8.0.0"
+  },
+  "optionalDependencies": {
+    "gifenc": "^1.0.3"
+  }
+}

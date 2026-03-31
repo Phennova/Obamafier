@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Obamafier</title>
+  <link rel="stylesheet" href="./styles/main.css" />
+</head>
+<body>
+  <div id="app">
+    <div class="header">
+      <h1>OBAMAFIER</h1>
+      <span class="status" id="status">Drop an image to begin</span>
+    </div>
+
+    <div class="canvas-container" id="canvasContainer">
+      <canvas id="canvas"></canvas>
+      <div class="drop-overlay" id="dropOverlay">
+        <div class="icon">&#x1F4F7;</div>
+        <p>Drop an image here or click Load Image</p>
+      </div>
+    </div>
+
+    <div class="progress-container hidden" id="progressContainer">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+
+    <div class="controls">
+      <button id="btnLoad">Load Image</button>
+      <label>
+        Res:
+        <select id="selResolution">
+          <option value="128">128</option>
+          <option value="256">256</option>
+          <option value="512" selected>512</option>
+          <option value="768">768</option>
+          <option value="1024">1024</option>
+          <option value="original">Original</option>
+        </select>
+      </label>
+      <label>
+        Quality:
+        <select id="selQuality">
+          <option value="draft">Draft</option>
+          <option value="medium">Medium</option>
+          <option value="high" selected>High</option>
+          <option value="ultra">Ultra</option>
+        </select>
+      </label>
+
+      <div class="spacer"></div>
+
+      <button id="btnObamafi" class="primary" disabled>OBAMAFI</button>
+      <button id="btnReset" disabled>Reset</button>
+      <button id="btnClear" disabled>Clear</button>
+
+      <div class="spacer"></div>
+
+      <label>
+        Duration:
+        <input type="range" id="sliderDuration" min="1" max="15" step="0.5" value="5" />
+        <span class="value" id="valDuration">5.0s</span>
+      </label>
+      <label>
+        Curve:
+        <input type="range" id="sliderCurve" min="0" max="1" step="0.05" value="0.4" />
+        <span class="value" id="valCurve">0.40</span>
+      </label>
+
+      <div class="spacer"></div>
+
+      <button id="btnSave" disabled>Save Frame</button>
+    </div>
+  </div>
+
+  <script type="module" src="./index.ts"></script>
+</body>
+</html>

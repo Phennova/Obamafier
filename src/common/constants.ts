@@ -19,4 +19,9 @@ export const IPC_CHANNELS = {
   PROCESSING_PROGRESS: 'processing-progress',
   EXPORT_FRAME: 'export-frame',
   GET_TARGET_PATH: 'get-target-path',
+  SAVE_OBAMACRYPT: 'save-obamacrypt',
+  READ_OBAMACRYPT: 'read-obamacrypt',
 } as const;
+
+/** Custom PNG metadata keyword — hidden from normal viewers */
+export const OBAMACRYPT_META_KEY = 'obamacrypt_v1';

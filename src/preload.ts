@@ -16,5 +16,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   exportFrame: (pngDataUrl: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.EXPORT_FRAME, pngDataUrl),
 
+  saveObamacrypt: (rgba: number[], width: number, height: number, encodedKey: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SAVE_OBAMACRYPT, rgba, width, height, encodedKey),
+
+  readObamacrypt: (imagePath: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.READ_OBAMACRYPT, imagePath),
+
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
 });

@@ -8,11 +8,16 @@ files:
   - assets/**/*
   - "!node_modules/**/*"
   - node_modules/sharp/**/*
+  - node_modules/@img/**/*
 mac:
-  target: dmg
+  target:
+    - dmg
+    - pkg
   category: public.app-category.graphics-design
+  icon: assets/icon.icns
 win:
   target: nsis
+  icon: assets/icon.icns
 linux:
   target: AppImage
 extraResources:

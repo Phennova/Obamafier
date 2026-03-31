@@ -23,5 +23,3 @@ export const IPC_CHANNELS = {
   READ_OBAMACRYPT: 'read-obamacrypt',
 } as const;
 
-/** Custom PNG metadata keyword — hidden from normal viewers */
-export const OBAMACRYPT_META_KEY = 'obamacrypt_v1';
